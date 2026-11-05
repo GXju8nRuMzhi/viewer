@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>Secret Bookmarks</title>
+  <style>
+    :root {
+      --bg: #ffffff;
+      --fg: #1f2328;
+      --muted: #6b7280;
+      --border: #d0d7de;
+      --hover: #f3f4f6;
+      --accent: #6d28d9;
+      --accent-fg: #ffffff;
+      --danger: #dc2626;
+      color-scheme: light dark;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1e1e24;
+        --fg: #e5e7eb;
+        --muted: #9ca3af;
+        --border: #3a3a44;
+        --hover: #2a2a33;
+        --accent: #8b5cf6;
+        --danger: #f87171;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0 auto;
+      max-width: 640px;
+      padding: 12px 16px calc(24px + env(safe-area-inset-bottom));
+      font: 15px/1.5 -apple-system, system-ui, "Hiragino Sans", sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      -webkit-text-size-adjust: 100%;
+    }
+    h1 { font-size: 18px; margin: 4px 0 10px; }
+    h2 { font-size: 14px; margin: 18px 0 6px; color: var(--muted); }
+    .hint { color: var(--muted); font-size: 13px; }
+    .msg { min-height: 1.2em; margin: 6px 0; color: var(--danger); font-size: 13px; }
+    .msg.ok { color: var(--muted); }
+    input, textarea, button {
+      font: inherit;
+      font-size: 16px; /* iOS のズームを防ぐ */
+      color: inherit;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    input, textarea { width: 100%; padding: 9px 10px; margin: 4px 0; }
+    textarea { resize: vertical; }
+    label { display: block; margin-bottom: 8px; color: var(--muted); font-size: 13px; }
+    label input, label textarea { color: var(--fg); }
+    button { padding: 8px 14px; cursor: pointer; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+    button.danger { color: var(--danger); border-color: var(--danger); }
+    button.block { width: 100%; margin-top: 6px; }
+    .bar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+    .bar input { margin: 0; flex: 1; min-width: 0; }
+    .row { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+    .count { margin-left: auto; color: var(--muted); font-size: 13px; }
+    .dirty { color: var(--danger); font-size: 13px; }
+    #list { list-style: none; margin: 0; padding: 0; }
+    #list li { display: flex; gap: 8px; align-items: flex-start; padding: 10px 4px; border-bottom: 1px solid var(--border); }
+    #list li.empty { color: var(--muted); justify-content: center; padding: 32px 0; border: 0; }
+    .item-main { flex: 1; min-width: 0; color: inherit; text-decoration: none; }
+    .item-title, .item-url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .item-title { font-weight: 600; }
+    .item-url { color: var(--muted); font-size: 12px; }
+    .item-note { color: var(--muted); font-size: 12px; white-space: pre-wrap; }
+    .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+    .tag { font-size: 12px; padding: 1px 8px; border-radius: 10px; background: var(--hover); border: 1px solid var(--border); }
+    .item-actions { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+    .item-actions button { padding: 4px 10px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <!-- ファイル選択 -->
+  <section id="view-open" class="view">
+    <h1>🔒 Secret Bookmarks</h1>
+    <p class="hint">PCの拡張機能から書き出したバックアップ（.json）を選んでください。データはこの端末の中だけで復号され、どこにも送信・保存されません。</p>
+    <button id="btn-pick" class="primary block">バックアップファイルを選ぶ</button>
+    <input id="file" type="file" accept=".json,application/json" hidden>
+    <p id="open-msg" class="msg"></p>
+    <h2>はじめて使う場合</h2>
+    <button id="btn-new" class="block">新しく作成する</button>
+  </section>
+
+  <!-- 新規作成 -->
+  <section id="view-setup" class="view" hidden>
+    <h1>新規作成</h1>
+    <form id="setup-form">
+      <input id="setup-pw" type="password" placeholder="パスワード（8文字以上）" autocomplete="new-password" required>
+      <input id="setup-pw2" type="password" placeholder="パスワード（確認）" autocomplete="new-password" required>
+      <button type="submit" class="primary block">作成</button>
+      <button type="button" class="block" data-back="view-open">戻る</button>
+      <p id="setup-msg" class="msg"></p>
+    </form>
+  </section>
+
+  <!-- 解錠 -->
+  <section id="view-unlock" class="view" hidden>
+    <h1>🔒 <span id="unlock-name"></span></h1>
+    <form id="unlock-form">
+      <input id="unlock-pw" type="password" placeholder="マスターパスワード" autocomplete="current-password" required>
+      <button type="submit" class="primary block">解錠</button>
+      <button type="button" class="block" data-back="view-open">別のファイルを選ぶ</button>
+      <p id="unlock-msg" class="msg"></p>
+    </form>
+  </section>
+
+  <!-- 一覧 -->
+  <section id="view-main" class="view" hidden>
+    <div class="bar">
+      <input id="search" type="search" placeholder="検索（タイトル・URL・タグ）">
+      <button id="btn-close" title="閉じる">🔒</button>
+    </div>
+    <div class="bar">
+      <button id="btn-add" class="primary">＋ 追加</button>
+      <button id="btn-export">保存（書き出し）</button>
+      <span id="dirty" class="dirty" hidden>未保存</span>
+      <span id="count" class="count"></span>
+    </div>
+    <ul id="list"></ul>
+  </section>
+
+  <!-- 追加・編集 -->
+  <section id="view-edit" class="view" hidden>
+    <h1 id="edit-title">ブックマーク</h1>
+    <form id="edit-form">
+      <label>タイトル<input id="edit-name" type="text"></label>
+      <label>URL<input id="edit-url" type="url" inputmode="url" autocapitalize="off" required></label>
+      <label>タグ（カンマ区切り）<input id="edit-tags" type="text"></label>
+      <label>メモ<textarea id="edit-note" rows="3"></textarea></label>
+      <p id="edit-msg" class="msg"></p>
+      <div class="row">
+        <button type="button" id="btn-edit-cancel">キャンセル</button>
+        <button type="submit" class="primary">保存</button>
+      </div>
+    </form>
+  </section>
+
+  <script>
+    // ---- 暗号処理（拡張機能の crypto.js と同じ形式。変更するときは両方そろえる） ----
+    const PBKDF2_ITERATIONS = 600000;
+    const enc = new TextEncoder();
+    const dec = new TextDecoder();
+
+    function toB64(bytes) {
+      const a = new Uint8Array(bytes);
+      let s = '';
+      for (let i = 0; i < a.length; i += 0x8000) {
+        s += String.fromCharCode.apply(null, a.subarray(i, i + 0x8000));
+      }
+      return btoa(s);
+    }
+
+    function fromB64(str) {
+      const s = atob(str);
+      const a = new Uint8Array(s.length);
+      for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i);
+      return a;
+    }
+
+    async function deriveKey(password, salt, iterations) {
+      const base = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
+      return crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' },
+        base,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['encrypt', 'decrypt']
+      );
+    }
+
+    async function encryptJSON(key, obj) {
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(JSON.stringify(obj)));
+      return { iv: toB64(iv), ct: toB64(ct) };
+    }
+
+    async function decryptJSON(key, { iv, ct }) {
+      const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64(iv) }, key, fromB64(ct));
+      return JSON.parse(dec.decode(pt));
+    }
+
+    // ---- 画面 ----
+    // データはメモリ上だけに置く（localStorage 等には一切保存しない）
+    const $ = (id) => document.getElementById(id);
+    let vault = null;  // 読み込んだファイルの中身
+    let key = null;
+    let meta = null;   // { v, salt, iter }
+    let data = null;   // { bookmarks: [...] }
+    let editingId = null;
+    let dirty = false;
+
+    function show(view) {
+      document.querySelectorAll('.view').forEach((v) => { v.hidden = v.id !== view; });
+      window.scrollTo(0, 0);
+    }
+
+    function setMsg(id, text, ok = false) {
+      $(id).textContent = text || '';
+      $(id).classList.toggle('ok', ok);
+    }
+
+    function setDirty(v) {
+      dirty = v;
+      $('dirty').hidden = !v;
+    }
+
+    function normalizeUrl(s) {
+      try {
+        const u = new URL(s.trim());
+        return ['http:', 'https:', 'ftp:'].includes(u.protocol) ? u.href : null;
+      } catch {
+        return null;
+      }
+    }
+
+    function closeVault() {
+      key = data = meta = vault = null;
+      setDirty(false);
+      $('search').value = '';
+      $('list').replaceChildren();
+      show('view-open');
+    }
+
+    window.addEventListener('beforeunload', (e) => {
+      if (dirty) e.preventDefault();
+    });
+
+    document.querySelectorAll('[data-back]').forEach((b) => b.addEventListener('click', () => show(b.dataset.back)));
+
+    // ---- 読み込み ----
+
+    $('btn-pick').addEventListener('click', () => $('file').click());
+
+    $('file').addEventListener('change', async () => {
+      const file = $('file').files[0];
+      $('file').value = '';
+      if (!file) return;
+      try {
+        const v = JSON.parse(await file.text());
+        const valid = v.format === 'secret-bookmarks'
+          && ['salt', 'iv', 'ct'].every((k) => typeof v[k] === 'string')
+          && Number.isInteger(v.iter) && v.iter > 0;
+        if (!valid) throw new Error();
+        vault = v;
+        setMsg('open-msg', '');
+        $('unlock-name').textContent = file.name;
+        $('unlock-pw').value = '';
+        setMsg('unlock-msg', '');
+        show('view-unlock');
+        $('unlock-pw').focus();
+      } catch {
+        setMsg('open-msg', 'バックアップファイルの形式が正しくありません');
+      }
+    });
+
+    $('unlock-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      setMsg('unlock-msg', '解錠中…', true);
+      try {
+        const k = await deriveKey($('unlock-pw').value, fromB64(vault.salt), vault.iter);
+        data = await decryptJSON(k, vault);
+        key = k;
+        meta = { v: vault.v ?? 1, salt: vault.salt, iter: vault.iter };
+      } catch {
+        $('unlock-pw').select();
+        return setMsg('unlock-msg', 'パスワードが違います');
+      }
+      $('unlock-pw').value = '';
+      setMsg('unlock-msg', '');
+      setDirty(false);
+      openMain();
+    });
+
+    $('btn-new').addEventListener('click', () => {
+      setMsg('setup-msg', '');
+      show('view-setup');
+      $('setup-pw').focus();
+    });
+
+    $('setup-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const pw = $('setup-pw').value;
+      if (pw.length < 8) return setMsg('setup-msg', '8文字以上にしてください');
+      if (pw !== $('setup-pw2').value) return setMsg('setup-msg', '確認用パスワードが一致しません');
+      setMsg('setup-msg', '鍵を生成中…', true);
+      const salt = crypto.getRandomValues(new Uint8Array(16));
+      meta = { v: 1, salt: toB64(salt), iter: PBKDF2_ITERATIONS };
+      key = await deriveKey(pw, salt, meta.iter);
+      data = { bookmarks: [] };
+      $('setup-pw').value = $('setup-pw2').value = '';
+      setMsg('setup-msg', '');
+      setDirty(true);
+      openMain();
+    });
+
+    // ---- 一覧 ----
+
+    function openMain() {
+      show('view-main');
+      renderList();
+    }
+
+    function renderList() {
+      const q = $('search').value.trim().toLowerCase();
+      const list = $('list');
+      list.replaceChildren();
+
+      const items = data.bookmarks
+        .filter((b) => !q || [b.title, b.url, b.note, ...(b.tags || [])].join(' ').toLowerCase().includes(q))
+        .sort((a, b) => b.created - a.created);
+      $('count').textContent = `${items.length} / ${data.bookmarks.length} 件`;
+
+      if (!items.length) {
+        const li = document.createElement('li');
+        li.className = 'empty';
+        li.textContent = data.bookmarks.length ? '一致するブックマークはありません' : 'まだブックマークがありません';
+        list.append(li);
+        return;
+      }
+
+      for (const b of items) {
+        const li = document.createElement('li');
+
+        const main = document.createElement('a');
+        main.className = 'item-main';
+        const safe = normalizeUrl(b.url);
+        if (safe) {
+          main.href = safe;
+          main.target = '_blank';
+          main.rel = 'noopener noreferrer';
+        }
+        const title = document.createElement('div');
+        title.className = 'item-title';
+        title.textContent = b.title || b.url;
+        const url = document.createElement('div');
+        url.className = 'item-url';
+        url.textContent = b.url;
+        main.append(title, url);
+        if (b.note) {
+          const note = document.createElement('div');
+          note.className = 'item-note';
+          note.textContent = b.note;
+          main.append(note);
+        }
+        if (b.tags?.length) {
+          const tags = document.createElement('div');
+          tags.className = 'tags';
+          for (const t of b.tags) {
+            const span = document.createElement('span');
+            span.className = 'tag';
+            span.textContent = t;
+            span.addEventListener('click', (e) => {
+              e.preventDefault();
+              $('search').value = t;
+              renderList();
+            });
+            tags.append(span);
+          }
+          main.append(tags);
+        }
+
+        const actions = document.createElement('div');
+        actions.className = 'item-actions';
+        const edit = document.createElement('button');
+        edit.textContent = '編集';
+        edit.addEventListener('click', () => openEdit(b));
+        const del = document.createElement('button');
+        del.textContent = '削除';
+        del.className = 'danger';
+        let armed = null;
+        del.addEventListener('click', () => {
+          if (!armed) {
+            del.textContent = '確定?';
+            armed = setTimeout(() => { del.textContent = '削除'; armed = null; }, 3000);
+            return;
+          }
+          clearTimeout(armed);
+          data.bookmarks = data.bookmarks.filter((x) => x.id !== b.id);
+          setDirty(true);
+          renderList();
+        });
+        actions.append(edit, del);
+
+        li.append(main, actions);
+        list.append(li);
+      }
+    }
+
+    $('search').addEventListener('input', renderList);
+
+    $('btn-close').addEventListener('click', () => {
+      if (dirty && !window.confirm('未保存の変更があります。保存せずに閉じますか？')) return;
+      closeVault();
+    });
+
+    // ---- 追加・編集 ----
+
+    function openEdit(b) {
+      editingId = b ? b.id : null;
+      const src = b || {};
+      $('edit-title').textContent = b ? 'ブックマークを編集' : 'ブックマークを追加';
+      $('edit-name').value = src.title || '';
+      $('edit-url').value = src.url || '';
+      $('edit-tags').value = (src.tags || []).join(', ');
+      $('edit-note').value = src.note || '';
+      setMsg('edit-msg', '');
+      show('view-edit');
+    }
+
+    $('btn-add').addEventListener('click', () => openEdit(null));
+    $('btn-edit-cancel').addEventListener('click', openMain);
+
+    $('edit-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const url = normalizeUrl($('edit-url').value);
+      if (!url) return setMsg('edit-msg', '有効なURLを入力してください（http/https など）');
+      const fields = {
+        title: $('edit-name').value.trim(),
+        url,
+        tags: [...new Set($('edit-tags').value.split(/[,、]/).map((t) => t.trim()).filter(Boolean))],
+        note: $('edit-note').value.trim(),
+        updated: Date.now(),
+      };
+      if (editingId) {
+        Object.assign(data.bookmarks.find((x) => x.id === editingId), fields);
+      } else {
+        data.bookmarks.push({ id: crypto.randomUUID(), created: Date.now(), ...fields });
+      }
+      setDirty(true);
+      openMain();
+    });
+
+    // ---- 書き出し ----
+
+    $('btn-export').addEventListener('click', async () => {
+      const { iv, ct } = await encryptJSON(key, data);
+      const json = JSON.stringify({ format: 'secret-bookmarks', ...meta, iv, ct });
+      const name = `secret-bookmarks-${new Date().toISOString().slice(0, 10)}.json`;
+      const file = new File([json], name, { type: 'application/json' });
+
+      // iOS では共有シートから「ファイルに保存」できる
+      if (navigator.canShare?.({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file] });
+          setDirty(false);
+          return;
+        } catch (err) {
+          if (err.name === 'AbortError') return;
+        }
+      }
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(file);
+      a.download = name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      setDirty(false);
+    });
+  </script>
+</body>
+</html>
